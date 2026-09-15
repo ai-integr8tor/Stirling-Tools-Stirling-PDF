@@ -26,8 +26,10 @@ import {
 import { isApplyingRestoredView } from "@app/services/workbenchSession";
 import { useViewer } from "@app/contexts/ViewerContext";
 import { useLocation, useNavigate } from "react-router-dom";
+
 import { Icon } from "@app/ui/Icon";
 import RightSidebar from "@app/components/tools/RightSidebar";
+import { ReaderRail } from "@app/components/viewer/readerRail/ReaderRail";
 import Workbench from "@app/components/layout/Workbench";
 import FileSidebar from "@app/components/shared/FileSidebar";
 import FileManager from "@app/components/FileManager";
@@ -36,6 +38,7 @@ import {
   getDefaultWorkbenchForFileCount,
 } from "@app/utils/homePageNavigation";
 import { EDITOR_BASENAME } from "@app/routes/editorBasename";
+import { READER_PATH } from "@app/routes/readerRoute";
 import { rememberSettingsOrigin } from "@app/utils/settingsNavigation";
 import { HomePageExtensions } from "@app/components/home/HomePageExtensions";
 import { PolicyAutoRunController } from "@app/components/policies/PolicyAutoRunController";
@@ -46,7 +49,10 @@ import {
   getToolDisabledReason,
   getDisabledLabel,
 } from "@app/components/tools/fullscreen/shared";
-import { consumeReaderModeRequest } from "@app/utils/pendingReaderMode";
+import {
+  consumeReaderModeFromPreference,
+  consumeReaderModeRequest,
+} from "@app/utils/pendingReaderMode";
 import {
   FilesPageProvider,
   useFilesPage,
@@ -67,35 +73,33 @@ import { Button } from "@app/ui/Button";
 import "@app/components/layout/WorkspaceFrame.css";
 import "@app/pages/HomePage.css";
 
-const SIDEBAR_COLLAPSED_STORAGE_KEY = "stirling.fileSidebarCollapsed";
 const SWIPE_HINT_SEEN_STORAGE_KEY = "stirling.mobileSwipeHintSeen";
+
+/**
+ * The wings' slide is `--wings-ms` (dimensions.css). Read from the document so one
+ * value drives both, with the literal as the fallback for a test environment that
+ * loads no stylesheet, and a frame of headroom so the unmount never clips the
+ * last frame of the animation.
+ */
+const WINGS_FALLBACK_MS = 220;
+const WINGS_HEADROOM_MS = 60;
+
+function wingsDurationMs(): number {
+  if (typeof window === "undefined") return WINGS_FALLBACK_MS;
+  const token = window
+    .getComputedStyle(document.documentElement)
+    .getPropertyValue("--wings-ms")
+    .trim();
+  const parsed = Number.parseFloat(token);
+  if (!Number.isFinite(parsed) || parsed <= 0) return WINGS_FALLBACK_MS;
+  return token.endsWith("ms") ? parsed : parsed * 1000;
+}
 
 function readSwipeHintSeen(): boolean {
   try {
     return window.localStorage.getItem(SWIPE_HINT_SEEN_STORAGE_KEY) === "true";
   } catch {
     return true;
-  }
-}
-
-function readPersistedSidebarCollapsed(): boolean {
-  try {
-    return (
-      window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function writePersistedSidebarCollapsed(collapsed: boolean): void {
-  try {
-    window.localStorage.setItem(
-      SIDEBAR_COLLAPSED_STORAGE_KEY,
-      String(collapsed),
-    );
-  } catch {
-    // private mode / quota: silently no-op
   }
 }
 
@@ -129,13 +133,6 @@ export default function HomePage() {
   const [activeMobileView, setActiveMobileView] = useState<MobileView>("tools");
   const isProgrammaticScroll = useRef(false);
   const location = useLocation();
-  // The user's preference, and the only thing that decides it: reading mode forces
-  // the sidebar shut without writing, so leaving reading restores this.
-  const [fileSidebarCollapsed, setFileSidebarCollapsed] = useState(
-    // Reader mode outlives this page (settings swaps it out and back), and it
-    // collapses the sidebar without persisting that, so it wins on mount too.
-    () => readerMode || readPersistedSidebarCollapsed(),
-  );
 
   // Settings is its own page; it restores the recorded origin on Back.
   const openSettings = useCallback(() => {
@@ -229,21 +226,66 @@ export default function HomePage() {
     const onFilesPath = location.pathname.startsWith("/files");
     if (inLibrary && !onFilesPath) {
       navigate("/files");
-    } else if (!inLibrary && onFilesPath) {
+    } else if (!inLibrary && onFilesPath && !readerMode) {
+      // Reading also leaves the library, and its own effect names the path it
+      // leaves for. Both navigating puts the editor between the two in history,
+      // so Back out of reading would land somewhere the user never went.
       navigate(EDITOR_BASENAME);
     }
-  }, [navigationState.workbench, location.pathname, navigate]);
+  }, [navigationState.workbench, location.pathname, navigate, readerMode]);
 
-  // Imperative, so the toggle still works while reading. Never persisted: not a preference.
-  const prevReaderModeRef = useRef(readerMode);
+  // Path moved, so the path is the cause. The ref starts null so mount counts too:
+  // that is what makes a reload land back in reading, and what takes you out of it
+  // when the library moves the path to its own.
+  const readerDerivedFromPath = useRef<string | null>(null);
   useEffect(() => {
-    if (readerMode !== prevReaderModeRef.current) {
-      setFileSidebarCollapsed(
-        readerMode ? true : readPersistedSidebarCollapsed(),
-      );
-      prevReaderModeRef.current = readerMode;
+    if (readerDerivedFromPath.current === location.pathname) return;
+    readerDerivedFromPath.current = location.pathname;
+    const onReadPath = location.pathname.startsWith(READER_PATH);
+    if (onReadPath !== readerMode) setReaderMode(onReadPath);
+  }, [location.pathname, readerMode, setReaderMode]);
+
+  // The wings animate off their own edge, so the unmount waits out the leave rather
+  // than happening with it. The rails' stylesheets take them out of flow while it
+  // runs, so what is underneath is already in its reading position and nothing
+  // reflows twice.
+  const [wingsMounted, setWingsMounted] = useState(!readerMode);
+  const [wingsPhase, setWingsPhase] = useState<"leaving" | "returning" | null>(
+    null,
+  );
+  const readingRef = useRef(readerMode);
+  useEffect(() => {
+    if (readingRef.current === readerMode) return;
+    readingRef.current = readerMode;
+    const slide = wingsDurationMs() + WINGS_HEADROOM_MS;
+    if (readerMode) {
+      setWingsPhase("leaving");
+      const gone = window.setTimeout(() => {
+        setWingsPhase(null);
+        setWingsMounted(false);
+      }, slide);
+      return () => window.clearTimeout(gone);
     }
+    setWingsMounted(true);
+    setWingsPhase("returning");
+    const settled = window.setTimeout(() => setWingsPhase(null), slide);
+    return () => window.clearTimeout(settled);
   }, [readerMode]);
+
+  // Reading moved, so the path follows. Pushed, not replaced, so Back leaves it.
+  const wasReadingRef = useRef(readerMode);
+  useEffect(() => {
+    if (readerMode === wasReadingRef.current) return;
+    wasReadingRef.current = readerMode;
+    const onReadPath = location.pathname.startsWith(READER_PATH);
+    if (readerMode && !onReadPath) {
+      navigate(READER_PATH, {
+        replace: consumeReaderModeFromPreference(),
+      });
+    } else if (!readerMode && onReadPath) {
+      navigate(EDITOR_BASENAME);
+    }
+  }, [readerMode, location.pathname, navigate]);
 
   const { setActiveFileIndex } = useViewer();
   const prevFileCountRef = useRef(activeFiles.length);
@@ -311,15 +353,6 @@ export default function HomePage() {
     }
     return reasons;
   }, [toolRegistry, toolAvailability, config?.premiumEnabled, t]);
-
-  // The collapse is a preference, so it is written as one; every view reads it back.
-  const handleSidebarToggle = useCallback(() => {
-    setFileSidebarCollapsed((c) => {
-      const next = !c;
-      writePersistedSidebarCollapsed(next);
-      return next;
-    });
-  }, []);
 
   const openFromComputerRef = useRef<(() => void) | null>(null);
   const registerOpenFromComputer = useCallback((open: (() => void) | null) => {
@@ -659,20 +692,27 @@ export default function HomePage() {
             h="100%"
             className="flex-nowrap flex"
             bg="var(--c-bg)"
+            data-wings={wingsPhase ?? undefined}
           >
-            <div className="workspace-frame">
-              <MyFilesAwareFileSidebar
-                ref={quickAccessRef}
-                accountHoisted
-                active={navigationState.workbench === "myFiles"}
-                collapsed={fileSidebarCollapsed}
-                onToggleCollapse={handleSidebarToggle}
-                onOpenSettings={openSettings}
-                onRegisterOpenFromComputer={registerOpenFromComputer}
-              />
-            </div>
+            {/* Reading leaves the document and nothing beside it, so the wing goes
+                rather than shrinking to a rail. Everywhere else it is fixed open. */}
+            {wingsMounted && (
+              <div className="workspace-frame">
+                <MyFilesAwareFileSidebar
+                  ref={quickAccessRef}
+                  accountHoisted
+                  active={navigationState.workbench === "myFiles"}
+                  onOpenSettings={openSettings}
+                  onRegisterOpenFromComputer={registerOpenFromComputer}
+                />
+              </div>
+            )}
             <Workbench />
-            {!hideToolPanel && <RightSidebar />}
+            {/* The reader's rail takes the slot the tool panel holds otherwise: the
+                panel's controls are the editor's, and reading wants the viewer's.
+                Both render together only while the panel is on its way out. */}
+            {wingsMounted && !hideToolPanel && <RightSidebar />}
+            {readerMode && <ReaderRail />}
             <FileManager selectedTool={selectedTool} />
           </Group>
         )}
@@ -765,10 +805,9 @@ const MyFilesSidebarOverrides = forwardRef<HTMLDivElement, FileSidebarProps>(
               // The same control the library's other surfaces use, so one row
               // cannot offer less than another: where a folder can go decides
               // its shape.
-              render: ({ collapsed }) => (
+              render: () => (
                 <NewFolderButton
                   trigger="row"
-                  collapsed={collapsed}
                   testId="files-rail-new-folder"
                   label={t("filesPage.newFolder", "New folder")}
                   disabledReason={newFolderDisabledReason}
