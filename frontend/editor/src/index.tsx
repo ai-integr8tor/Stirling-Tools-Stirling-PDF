@@ -18,11 +18,12 @@ import App from "@app/App";
 import "@app/i18n"; // Initialize i18next
 import { BASE_PATH } from "@app/constants/app";
 import { applyDevWorktreeLabel } from "@app/utils/applyDevWorktreeLabel";
-
 import { startEagerWasmCompilation } from "@app/services/wasmPrecompiler";
 
 applyDevWorktreeLabel();
-
+// Defer precompile until boot settles: fetching + compiling alongside
+// translations and dynamic imports contends for bandwidth and the main
+// thread, and WebKit cancels the losers as page errors.
 if (typeof window !== "undefined") {
   const scheduleCompilation = () =>
     requestIdleCallback(() => startEagerWasmCompilation(), { timeout: 2000 });

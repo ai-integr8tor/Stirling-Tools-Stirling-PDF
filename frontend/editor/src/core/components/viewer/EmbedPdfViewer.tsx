@@ -150,6 +150,7 @@ const EmbedPdfViewerContent = ({
     historyApiRef,
     signatureConfig,
     isPlacementMode,
+    clearImageDataStore,
   } = useSignature();
 
   // Track whether there are unsaved annotation changes in this viewer session.
@@ -309,6 +310,14 @@ const EmbedPdfViewerContent = ({
   const currentFileStableId =
     currentFile && isStirlingFile(currentFile) ? currentFile.fileId : null;
   const fileWithUrl = useFileWithUrl(currentFile, currentFileId);
+
+  // Clear signature image store when the active document changes or viewer unmounts
+  useEffect(() => {
+    clearImageDataStore();
+    return () => {
+      clearImageDataStore();
+    };
+  }, [currentFileStableId, clearImageDataStore]);
 
   // Determine the effective file to display
   const effectiveFile = React.useMemo(() => {
@@ -1253,10 +1262,11 @@ const EmbedPdfViewerContent = ({
               position: "relative",
               flex: 1,
               overflow: "hidden",
-              minHeight: 0,
+              minHeight: "min(800px, 80vh)",
               minWidth: 0,
               marginRight: `${totalRightMargin}rem`,
               transition: "margin-right 0.3s ease",
+              contain: "layout style",
             }}
           >
             <LocalEmbedPDF

@@ -19,10 +19,14 @@ const getWasmUrl = (): string => {
 
 export const pdfiumWasmUrl = getWasmUrl();
 
-let resolvePromise: (module: WebAssembly.Module | null) => void;
+export interface WasmModuleContainer {
+  module: WebAssembly.Module | null;
+}
+
+let resolvePromise: (container: WasmModuleContainer | null) => void;
 let compilationStarted = false;
 
-export const pdfiumWasmModulePromise = new Promise<WebAssembly.Module | null>(
+export const pdfiumWasmModulePromise = new Promise<WasmModuleContainer | null>(
   (resolve) => {
     resolvePromise = resolve;
   },
@@ -66,6 +70,6 @@ export function startEagerWasmCompilation(): void {
   };
 
   compileWithFallback()
-    .then(resolvePromise)
+    .then((module) => resolvePromise(module ? { module } : null))
     .catch(() => resolvePromise(null));
 }
