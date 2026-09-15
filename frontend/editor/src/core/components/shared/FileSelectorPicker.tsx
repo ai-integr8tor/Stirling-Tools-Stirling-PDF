@@ -517,7 +517,7 @@ export function FileSelectorPicker({
                     : t("fileSelectorPicker.sort.nameDesc", "Z to A")
                 }
               >
-                {t("fileSelectorPicker.sort.nameLabel", "A–Z")}
+                {t("fileSelectorPicker.sort.nameLabel", "A-Z")}
                 {sortBy === "name" && (
                   <span className={styles.sortArrow}>
                     {sortDir === "asc" ? " ↑" : " ↓"}
