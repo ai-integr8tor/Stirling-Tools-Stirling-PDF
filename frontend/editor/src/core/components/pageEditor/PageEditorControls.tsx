@@ -2,6 +2,7 @@ import { Tooltip } from "@mantine/core";
 import { ActionIcon } from "@app/ui/ActionIcon";
 import { Icon } from "@app/ui/Icon";
 import { useTranslation } from "react-i18next";
+import { useMediaQuery } from "@mantine/hooks";
 
 interface PageEditorControlsProps {
   // Close/Reset functions
@@ -48,6 +49,8 @@ const PageEditorControls = ({
   splitPositions,
 }: PageEditorControlsProps) => {
   const { t } = useTranslation();
+  const isNarrow = useMediaQuery("(max-width: 30rem)") ?? false;
+  const controlSize = isNarrow ? "md" : "lg";
   // Calculate split tooltip text using smart toggle logic
   const getSplitTooltip = () => {
     if (!splitPositions || !displayDocument || selectedPageIds.length === 0) {
@@ -109,7 +112,7 @@ const PageEditorControls = ({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 12,
+          gap: isNarrow ? 6 : 12,
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
           borderBottomLeftRadius: 0,
@@ -119,19 +122,18 @@ const PageEditorControls = ({
           border: "1px solid var(--c-border)",
           borderRadius: "16px 16px 0 0",
           pointerEvents: "auto",
-          minWidth: 360,
+          minWidth: isNarrow ? 0 : 360,
           maxWidth: 700,
           flexWrap: "wrap",
           justifyContent: "center",
-          padding: "1rem",
-          paddingBottom: "1rem",
+          padding: isNarrow ? "0.75rem 0.5rem" : "1rem",
         }}
       >
         {/* Undo/Redo */}
         <Tooltip label={t("pageEditor.toolbar.undo", "Undo")}>
           <ActionIcon
             variant="tertiary"
-            size="lg"
+            size={controlSize}
             onClick={onUndo}
             disabled={!canUndo}
             aria-label={t("pageEditor.toolbar.undo", "Undo")}
@@ -142,7 +144,7 @@ const PageEditorControls = ({
         <Tooltip label={t("pageEditor.toolbar.redo", "Redo")}>
           <ActionIcon
             variant="tertiary"
-            size="lg"
+            size={controlSize}
             onClick={onRedo}
             disabled={!canRedo}
             aria-label={t("pageEditor.toolbar.redo", "Redo")}
@@ -156,7 +158,7 @@ const PageEditorControls = ({
             width: 1,
             height: 28,
             backgroundColor: "var(--mantine-color-gray-3)",
-            margin: "0 8px",
+            margin: isNarrow ? "0 4px" : "0 8px",
           }}
         />
 
@@ -166,7 +168,7 @@ const PageEditorControls = ({
         >
           <ActionIcon
             variant="tertiary"
-            size="lg"
+            size={controlSize}
             onClick={() => onRotate("left")}
             disabled={selectedPageIds.length === 0}
             aria-label={t(
@@ -182,7 +184,7 @@ const PageEditorControls = ({
         >
           <ActionIcon
             variant="tertiary"
-            size="lg"
+            size={controlSize}
             onClick={() => onRotate("right")}
             disabled={selectedPageIds.length === 0}
             aria-label={t(
@@ -196,7 +198,7 @@ const PageEditorControls = ({
         <Tooltip label={t("pageEditor.toolbar.delete", "Delete Selected")}>
           <ActionIcon
             variant="tertiary"
-            size="lg"
+            size={controlSize}
             onClick={onDelete}
             disabled={selectedPageIds.length === 0}
             aria-label={t("pageEditor.toolbar.delete", "Delete Selected")}
@@ -207,7 +209,7 @@ const PageEditorControls = ({
         <Tooltip label={getSplitTooltip()}>
           <ActionIcon
             variant="tertiary"
-            size="lg"
+            size={controlSize}
             onClick={onSplit}
             disabled={selectedPageIds.length === 0}
             aria-label={getSplitTooltip()}
@@ -218,7 +220,7 @@ const PageEditorControls = ({
         <Tooltip label={getPageBreakTooltip()}>
           <ActionIcon
             variant="tertiary"
-            size="lg"
+            size={controlSize}
             onClick={onPageBreak}
             disabled={selectedPageIds.length === 0}
             aria-label={getPageBreakTooltip()}
